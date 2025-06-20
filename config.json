@@ -1,0 +1,9 @@
+{
+  "action": "beacon_config",
+  "status": false,
+  "ble_min": 0,
+  "ble_max": 0,
+  "wifi_min": 0,
+  "wifi_max": 0,
+  "server": "mqtt.inovasi.top"
+}
