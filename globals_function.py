@@ -6,15 +6,13 @@ try:
 except ImportError:
     GPIO = None  # Agar tidak error saat testing di non-RPi
 
-LOG_COLLECT = "log/code/log_collect.log"
-
-def write_collect_log(msg):
+def write_log(log_path, msg):
     """
-    Menyimpan log aksi penting ke file log_collect.log
+    Menyimpan log ke file yang ditentukan.
     """
     try:
-        os.makedirs(os.path.dirname(LOG_COLLECT), exist_ok=True)
-        with open(LOG_COLLECT, "a") as f:
+        os.makedirs(os.path.dirname(log_path), exist_ok=True)
+        with open(log_path, "a") as f:
             f.write(f"{time.strftime('%Y-%m-%d %H:%M:%S')} | {msg}\n")
     except Exception as e:
         print(f"Failed to write log: {e}")
