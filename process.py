@@ -3,268 +3,181 @@ import sys
 import time
 import json
 import statistics
+from datetime import datetime, timedelta
 
 import globals
 import globals_function as gf
 
 CODE_LOG_FILE = "log/code/log_process.log"
 
-class ProcessProgram(object):
-    '''
-    Program ini bertugas memproses data log WiFi dan BLE,
-    baik untuk counting mode maupun indoor tracking mode.
-    '''
+DATA_WIFI_DIR = "data_raw_wifi"
+DATA_BLE_DIR = "data_raw_ble"
+DATA_FINAL_DIR = "data_final"
 
-    def __init__(self):
-        self.pass_counting_noise = 3600
-        self.menit_trigger_count = 1
-        gf.write_log(CODE_LOG_FILE, "Process Setup Done")
-        gf.dd("Process Setup Done")
-
-    def main(self):
-        gf.write_log(CODE_LOG_FILE, "Start Main Loop")
-        gf.dd("Start Main")
-        while True:
+def parse_log_file(filepath, is_ble=False):
+    """
+    Parse log file menjadi dict {mac: [ {dt, rssi}, ... ]}
+    """
+    result = {}
+    try:
+        with open(filepath, "r") as f:
+            lines = f.readlines()
+        for line in lines:
+            line = line.strip()
+            if not line:
+                continue
             try:
-                if not globals.indoortracking_mode:
-                    self.counting_mode()
-                else:
-                    self.indoor_tracking_mode()
-                time.sleep(2)
-            except Exception as e:
-                exc_type, exc_obj, exc_tb = sys.exc_info()
-                fname = os.path.split(exc_tb.tb_frame.f_code.co_filename)[1]
-                err_msg = f"main :: {exc_type} - {fname} - {exc_tb.tb_lineno} - {exc_obj}"
-                gf.dd(err_msg)
-                gf.write_log(CODE_LOG_FILE, f"ERROR: {err_msg}")
-                time.sleep(2)
-
-    def counting_mode(self):
-        # Cek file log wifi yang belum diproses
-        list_wifi = self.check_data_before_process()
-        if not list_wifi:
-            return
-
-        for list_wifi_file in list_wifi:
-            # Proses WiFi
-            list_wifi_sorted = self.sort_data_and_save_to_variable_wifi(list_wifi_file)
-            count_total_wifi, list_mac_wifi, obj_mac_wifi, dwelling_wifi, dwelling_wifi_mean = self.count_wifi(list_wifi_sorted, list_wifi_file, list_wifi)
-            dwelling_count_wifi, _ = self.get_dwelling_count(obj_mac_wifi)
-
-            # Simpan hasil WiFi
-            clean0 = list_wifi_file.replace("log/wifi/", "")
-            clean1 = clean0.replace(".log", f":{self.minute_only()}:{self.second_only()}")
-            date_time = clean1.replace("mac_", "")
-            nam = list_wifi_file.replace("log/wifi/", "log/wifi_result/")
-            name = nam.replace(".log", "")
-            content = {
-                "date_time": date_time,
-                "total_wifi": count_total_wifi,
-                "dwelling_wifi": dwelling_wifi,
-                "dwelling_wifi_mean": dwelling_wifi_mean,
-                "dwelling_count_wifi": dwelling_count_wifi,
-                "list_wifi": list_mac_wifi
-            }
-            content_time = {
-                "duration": obj_mac_wifi
-            }
-            gf.write_log(name, json.dumps(content))
-            gf.write_log(name, json.dumps(content_time))
-
-            # Proses BLE (jika ada file BLE yang sesuai)
-            try:
-                list_ble_file = list_wifi_file.replace("log/wifi/", "log/ble/")
-                list_ble_sorted = self.sort_data_and_save_to_variable_ble(list_ble_file)
-                count_total_ble, list_mac_ble, obj_mac_ble, dwelling_ble, dwelling_ble_mean = self.count_ble(list_ble_sorted)
-                dwelling_count_ble, _ = self.get_dwelling_count(obj_mac_ble)
-
-                clean0 = list_ble_file.replace("log/ble/", "")
-                clean1 = clean0.replace(".log", f":01:01")
-                date_time_ble = clean1.replace("mac_", "")
-                nam_ble = list_ble_file.replace("log/ble/", "log/ble_result/")
-                name_ble = nam_ble.replace(".log", "")
-                content_ble = {
-                    "date_time": date_time_ble,
-                    "total_ble": count_total_ble,
-                    "dwelling_ble": dwelling_ble,
-                    "dwelling_ble_mean": dwelling_ble_mean,
-                    "dwelling_count_ble": dwelling_count_ble,
-                    "list_ble": list_mac_ble
-                }
-                content_time_ble = {
-                    "duration": obj_mac_ble
-                }
-                gf.write_log(name_ble, json.dumps(content_ble))
-                gf.write_log(name_ble, json.dumps(content_time_ble))
-            except Exception as e:
-                gf.dd(f"counting_mode BLE :: {e}")
-
-            # (Optional) update global status, dsb, sesuai kebutuhan Anda
-
-    def check_data_before_process(self):
-        # Mirip sniff_process.py, cek file log wifi yang belum diproses
-        list_files = []
-        wifi_result = self.list_file_in_folder("log/wifi_result")
-        try:
-            if wifi_result:
-                list_wifis = self.list_file_in_folder("log/wifi")
-                if len(list_wifis) > 0:
-                    for log_wifi in list_wifis:
-                        log_file_wifi = log_wifi.replace("log/wifi", "log/wifi_result")
-                        if not log_file_wifi in wifi_result:
-                            convert = self.menit_trigger_count * 60
-                            convert_min = convert - 10
-                            if self.minute_only_to_seconds() >= convert_min and self.minute_only_to_seconds() <= convert:
-                                if not gf.time_stamp_hour_only() in log_wifi:
-                                    gf.dd(f"BLE -> {log_wifi}")
-                                    list_files.append(log_wifi)
-            else:
-                list_wifis = self.list_file_in_folder("log/wifi")
-                if len(list_wifis) > 0:
-                    for log_wifi in list_wifis:
-                        if not gf.time_stamp_hour_only() in log_wifi:
-                            gf.dd(f"WiFi -> {log_wifi}")
-                            list_files.append(log_wifi)
-        except Exception as e:
-            exc_type, exc_obj, exc_tb = sys.exc_info()
-            fname = os.path.split(exc_tb.tb_frame.f_code.co_filename)[1]
-            gf.dd(f"check_data_before_process :: {exc_type} - {fname} - {exc_tb.tb_lineno} - {exc_obj}")
-        return list_files
-
-    # --- Helper functions ---
-    def list_file_in_folder(self, folder):
-        try:
-            return [os.path.join(folder, f) for f in os.listdir(folder) if os.path.isfile(os.path.join(folder, f))]
-        except Exception:
-            return []
-
-    def minute_only(self):
-        return time.strftime("%M")
-
-    def second_only(self):
-        return time.strftime("%S")
-
-    def minute_only_to_seconds(self):
-        return int(time.strftime("%M")) * 60 + int(time.strftime("%S"))
-
-    # --- Data parsing and counting (adaptasi dari sniff_process.py) ---
-    def sort_data_and_save_to_variable_wifi(self, list_wifi_name):
-        result_wifi = {}
-        gf.dd(f"Wifi Name - {list_wifi_name}")
-        try:
-            with open(list_wifi_name, "r") as f:
-                read_data = f.read()
-        except Exception:
-            return result_wifi
-        if read_data:
-            data_split_by_enter = read_data.split("\n")
-            for data in data_split_by_enter:
-                base_data = data.split(" - ")
-                date_time_from_data = base_data[0] if base_data else None
-                mac_address_from_data = None
-                rssi_from_data = None
-                split_base_data = data.split(",")
-                try:
-                    if "ADDR=" in split_base_data[0] and "RSSI=" in split_base_data[2]:
-                        split_mac = split_base_data[0].split("=")
-                        mac = split_mac[1]
-                        if len(mac) >= 16:
-                            mac_address_from_data = mac
-                        split_rssi = split_base_data[2].split("=")
-                        rssi_negatif = split_rssi[1][0:3]
-                        if rssi_negatif:
-                            try:
-                                rssi_neg = int(rssi_negatif) * -1
-                                rssi_from_data = int(rssi_neg)
-                            except:
-                                rssi_from_data = ""
-                except Exception:
-                    pass
-                if date_time_from_data and mac_address_from_data and rssi_from_data:
-                    dump_data = []
-                    save_data = {
-                        "dt": date_time_from_data,
-                        "rssi": rssi_from_data
-                    }
-                    if not mac_address_from_data in result_wifi:
-                        dump_data.append(save_data)
-                        result_wifi[mac_address_from_data] = dump_data
-                    else:
-                        dump_data = result_wifi[mac_address_from_data]
-                        dump_data.append(save_data)
-                        result_wifi[mac_address_from_data] = dump_data
-        return result_wifi
-
-    def sort_data_and_save_to_variable_ble(self, list_ble_name):
-        result_ble = {}
-        gf.dd(f"ble Name - {list_ble_name}")
-        try:
-            with open(list_ble_name, "r") as f:
-                read_data = f.read()
-        except Exception:
-            return result_ble
-        if read_data:
-            data_split_by_enter = read_data.split("\n")
-            for data in data_split_by_enter:
-                base_data = data.split(" - ")
-                date_time_from_data = base_data[0] if base_data else None
-                mac_address_from_data = None
-                rssi_from_data = None
-                split_base_data = data.split(",")
-                try:
+                base_data = line.split(" - ")
+                date_time_from_data = base_data[0]
+                split_base_data = line.split(",")
+                if is_ble:
                     if "BLE=" in split_base_data[0] and "RSSI=" in split_base_data[1]:
-                        split_mac = split_base_data[0].split("=")
-                        mac = split_mac[1]
-                        if len(mac) >= 16:
-                            mac_address_from_data = mac
-                        split_rssi = split_base_data[1].split("=")
-                        rssi_negatif = split_rssi[1][0:3]
-                        if rssi_negatif:
-                            try:
-                                rssi_neg = int(rssi_negatif) * -1
-                                rssi_from_data = int(rssi_neg)
-                            except:
-                                rssi_from_data = ""
-                except Exception:
-                    pass
-                if date_time_from_data and mac_address_from_data and rssi_from_data:
-                    dump_data = []
-                    save_data = {
-                        "dt": date_time_from_data,
-                        "rssi": rssi_from_data
-                    }
-                    if not mac_address_from_data in result_ble:
-                        dump_data.append(save_data)
-                        result_ble[mac_address_from_data] = dump_data
+                        mac = split_base_data[0].split("=")[1]
+                        rssi = int(split_base_data[1].split("=")[1])
                     else:
-                        dump_data = result_ble[mac_address_from_data]
-                        dump_data.append(save_data)
-                        result_ble[mac_address_from_data] = dump_data
-        return result_ble
+                        continue
+                else:
+                    if "ADDR=" in split_base_data[0] and "RSSI=" in split_base_data[2]:
+                        mac = split_base_data[0].split("=")[1]
+                        rssi = int(split_base_data[2].split("=")[1])
+                    else:
+                        continue
+                if mac not in result:
+                    result[mac] = []
+                result[mac].append({"dt": date_time_from_data, "rssi": rssi})
+            except Exception:
+                continue
+    except Exception as e:
+        gf.dd(f"parse_log_file error: {e}")
+    return result
 
-    def count_wifi(self, list_wifi_sorted, list_wifi_file, list_wifi):
-        # Implementasi mirip sniff_process.py, bisa diadaptasi sesuai kebutuhan
-        # Untuk ringkas, return dummy
-        return 0, [], {}, 0, 0
+def calc_dwelling(mac_data):
+    """
+    Hitung dwelling time (detik) untuk setiap mac.
+    Return: dict {mac: dwelling_time}
+    """
+    from datetime import datetime
+    result = {}
+    for mac, records in mac_data.items():
+        if len(records) < 2:
+            continue
+        try:
+            t0 = datetime.strptime(records[0]["dt"], "%Y-%m-%d %H:%M:%S")
+            t1 = datetime.strptime(records[-1]["dt"], "%Y-%m-%d %H:%M:%S")
+            duration = int((t1 - t0).total_seconds())
+            result[mac] = duration
+        except Exception:
+            continue
+    return result
 
-    def count_ble(self, list_ble_sorted):
-        # Implementasi mirip sniff_process.py, bisa diadaptasi sesuai kebutuhan
-        # Untuk ringkas, return dummy
-        return 0, [], {}, 0, 0
+def classify_dwelling(dwelling_dict):
+    """
+    Klasifikasikan dwelling time ke 3 kategori.
+    Return: [count_0_30, count_31_300, count_301_up]
+    """
+    a, b, c = 0, 0, 0
+    for dur in dwelling_dict.values():
+        if dur <= 30:
+            a += 1
+        elif 31 <= dur <= 300:
+            b += 1
+        elif dur > 300:
+            c += 1
+    return [a, b, c]
 
-    def get_dwelling_count(self, obj_mac):
-        # Implementasi mirip sniff_process.py, bisa diadaptasi sesuai kebutuhan
-        # Untuk ringkas, return dummy
-        return [0, 0, 0], 0
+def process_for_hour(hour_str):
+    dt_str = f"{hour_str}:00:00"
+    wifi_file = None
+    ble_file = None
+    for fname in os.listdir(DATA_WIFI_DIR):
+        if hour_str in fname:
+            wifi_file = os.path.join(DATA_WIFI_DIR, fname)
+            break
+    for fname in os.listdir(DATA_BLE_DIR):
+        if hour_str in fname:
+            ble_file = os.path.join(DATA_BLE_DIR, fname)
+            break
 
-    def indoor_tracking_mode(self):
-        # Implementasi sesuai kebutuhan Anda
-        pass
+    wifi_mac_data = parse_log_file(wifi_file) if wifi_file else {}
+    wifi_dwelling = calc_dwelling(wifi_mac_data)
+    dwelling_count_wifi = classify_dwelling(wifi_dwelling)
+    total_wifi = sum(dwelling_count_wifi)
+
+    ble_mac_data = parse_log_file(ble_file, is_ble=True) if ble_file else {}
+    ble_dwelling = calc_dwelling(ble_mac_data)
+    dwelling_count_ble = classify_dwelling(ble_dwelling)
+    total_ble = sum(dwelling_count_ble)
+
+    ip_addr = getattr(globals, "ip", "-")
+    mac_addr = getattr(globals, "mac_address", "-")
+
+    final_data = {
+        "action": "send_data",
+        "data": {
+            "id": mac_addr,
+            "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            "ip": ip_addr,
+            "dt": dt_str,
+            "total_wifi": total_wifi,
+            "total_ble": total_ble,
+            "dwelling_wifi": 0,
+            "dwelling_ble": 0,
+            "dwelling_count_wifi": dwelling_count_wifi,
+            "dwelling_count_ble": dwelling_count_ble
+        }
+    }
+
+    os.makedirs(DATA_FINAL_DIR, exist_ok=True)
+    final_filename = f"final_{hour_str}.log"
+    final_path = os.path.join(DATA_FINAL_DIR, final_filename)
+    with open(final_path, "w") as f:
+        json.dump(final_data, f, indent=2)
+    gf.write_log(CODE_LOG_FILE, f"Saved final data to {final_path}")
+
+def get_all_hours_from_raw():
+    """Ambil semua jam unik dari file di data_raw_wifi dan data_raw_ble"""
+    hours = set()
+    for folder in [DATA_WIFI_DIR, DATA_BLE_DIR]:
+        for fname in os.listdir(folder):
+            if len(fname) >= 13:
+                # Ambil pattern yyyy-mm-dd HH dari nama file
+                try:
+                    parts = fname.split("_")
+                    if len(parts) >= 2:
+                        date_part = parts[-1].replace(".log", "")
+                        hour_str = date_part[:13].replace("-", " ")
+                        # Cek format
+                        datetime.strptime(hour_str, "%Y %m %d %H")
+                        hour_str = hour_str.replace(" ", "-")
+                        hour_str = hour_str.replace("-", " ", 2)
+                        hours.add(hour_str)
+                except Exception:
+                    continue
+    return sorted(hours)
+
+def get_all_final_hours():
+    """Ambil semua jam unik yang sudah ada di data_final"""
+    hours = set()
+    for fname in os.listdir(DATA_FINAL_DIR):
+        if fname.startswith("final_") and fname.endswith(".log"):
+            hour_str = fname.replace("final_", "").replace(".log", "")
+            hours.add(hour_str)
+    return hours
 
 if __name__ == "__main__":
     try:
-        main = ProcessProgram()
-        main.main()
+        while True:
+            now = datetime.now()
+            # Jalankan hanya pada jam 00:00 dan 12:00
+            if now.hour in [0, 12] and now.minute == 0:
+                all_hours = get_all_hours_from_raw()
+                final_hours = get_all_final_hours()
+                for hour_str in all_hours:
+                    if hour_str not in final_hours:
+                        process_for_hour(hour_str)
+                time.sleep(60)  # Hindari double eksekusi dalam 1 menit
+            else:
+                time.sleep(30)
     except KeyboardInterrupt:
         gf.write_log(CODE_LOG_FILE, "Program stopped by user")
     except Exception as e:
