@@ -5,7 +5,6 @@ import time
 import serial
 
 import globals
-import global_function
 import globals_function as gf
 
 if globals.output:
