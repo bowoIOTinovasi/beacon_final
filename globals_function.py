@@ -1,5 +1,6 @@
 import time
 import os
+import glob
 
 try:
     import RPi.GPIO as GPIO
@@ -35,3 +36,22 @@ def led_status(color, led_green=27, led_red=17):
     elif color == "red":
         GPIO.output(led_green, GPIO.HIGH)
         GPIO.output(led_red, GPIO.LOW)
+
+def dd(msg):
+    """Debug print/log ke stdout dan file log jika perlu."""
+    print(f"[DEBUG] {msg}")
+
+def time_stamp_hour_only():
+    """Return string timestamp format YYYYMMDD_HH."""
+    return time.strftime("%Y%m%d_%H")
+
+def get_port_id():
+    """
+    Deteksi port serial USB.
+    Return: dict {port: description}
+    """
+    ports = {}
+    # Untuk Linux/Raspberry Pi, port biasanya /dev/ttyUSB* atau /dev/ttyACM*
+    for dev in glob.glob('/dev/ttyUSB*') + glob.glob('/dev/ttyACM*'):
+        ports[dev] = "USB Serial Device"
+    return ports
