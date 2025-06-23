@@ -3,6 +3,7 @@ import os
 import json
 import time
 import serial
+import serial.tools.list_ports
 
 import globals
 import globals_function as gf
@@ -11,6 +12,23 @@ if globals.output:
     import RPi.GPIO as GPIO
     
 CODE_LOG_FILE = "log/code/log_collect.log"
+
+def auto_detect_serial_port(preferred_names=None):
+    """
+    Deteksi otomatis port serial yang cocok.
+    preferred_names: list string, misal ['CP2102', 'CH340', 'FTDI', ...]
+    Return: path port (str) atau None
+    """
+    ports = list(serial.tools.list_ports.comports())
+    for port in ports:
+        desc = f"{port.description} {port.hwid} {port.manufacturer or ''} {port.product or ''}"
+        if preferred_names:
+            for name in preferred_names:
+                if name.lower() in desc.lower():
+                    return port.device
+        else:
+            return port.device
+    return None
 
 class CollectProgram(object):
     '''
@@ -56,28 +74,26 @@ class CollectProgram(object):
         if globals.hardware:
             connected = False
             while not connected:
-                find_serial = gf.get_port_id()
-                for seri in find_serial:
-                    if "usb-1a86_USB_Single_Serial_562B012422-if00" in find_serial[seri] or "usb-Silicon_Labs_CP2102_USB" in find_serial[seri]:
-                        try:
-                            gf.dd(f"Try to connect sensor :: {seri} :: {find_serial[seri]}")
-                            gf.write_log(CODE_LOG_FILE, f"Try to connect sensor :: {seri} :: {find_serial[seri]}")
-                            self.raw_data = serial.Serial(
-                                seri,
-                                baudrate=115200,
-                                timeout=1
-                            )
-                            self.raw_data.reset_input_buffer()
-                            time.sleep(3)
-                            connected = True
-                            gf.led_status("green", self.led_green, self.led_red)
-                            gf.write_log(CODE_LOG_FILE, "Sensor connected, LED green ON")
-                            break
-                        except Exception as e:
-                            gf.dd(f"connect_sensor > {e}")
-                            gf.write_log(CODE_LOG_FILE, f"connect_sensor > {e}")
-                            gf.led_status("red", self.led_green, self.led_red)
-                if not connected:
+                port = auto_detect_serial_port(['CP2102', 'CH340', 'FTDI', 'Silicon', 'USB'])
+                if port:
+                    try:
+                        gf.dd(f"Try to connect sensor :: {port}")
+                        gf.write_log(CODE_LOG_FILE, f"Try to connect sensor :: {port}")
+                        self.raw_data = serial.Serial(
+                            port,
+                            baudrate=115200,
+                            timeout=1
+                        )
+                        self.raw_data.reset_input_buffer()
+                        time.sleep(3)
+                        connected = True
+                        gf.led_status("green", self.led_green, self.led_red)
+                        gf.write_log(CODE_LOG_FILE, "Sensor connected, LED green ON")
+                    except Exception as e:
+                        gf.dd(f"connect_sensor > {e}")
+                        gf.write_log(CODE_LOG_FILE, f"connect_sensor > {e}")
+                        gf.led_status("red", self.led_green, self.led_red)
+                else:
                     gf.led_status("red", self.led_green, self.led_red)
                     gf.write_log(CODE_LOG_FILE, "Sensor not connected, LED red ON")
                     time.sleep(2)
