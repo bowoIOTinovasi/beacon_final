@@ -8,16 +8,10 @@ import globals
 import global_function
 import globals_function as gf
 
-import RPi.GPIO as GPIO
-
-LOG_COLLECT = "log/code/log_collect.log"
-
-def write_collect_log(msg):
-    try:
-        with open(LOG_COLLECT, "a") as f:
-            f.write(f"{time.strftime('%Y-%m-%d %H:%M:%S')} | {msg}\n")
-    except Exception as e:
-        print(f"Failed to write log: {e}")
+if globals.output:
+    import RPi.GPIO as GPIO
+    
+CODE_LOG_FILE = "log/code/log_collect.log"
 
 class CollectProgram(object):
     '''
@@ -33,11 +27,11 @@ class CollectProgram(object):
         gf.setup_led(self.led_green, self.led_red)
         self.connect_sensor()
         time.sleep(2)
-        gf.write_collect_log("Setup Done")
+        gf.write_log(CODE_LOG_FILE, "Setup Done")
         self.gf.dd("Setup Done")
 
     def main(self):
-        gf.write_collect_log("Start Main Loop")
+        gf.write_log(CODE_LOG_FILE, "Start Main Loop")
         self.gf.dd("Start Main")
         while True:
             raw = self.get_value()
@@ -48,16 +42,16 @@ class CollectProgram(object):
 
                     if "ADDR" in str(raw) and "RSSI" in str(raw) and "SSID" in str(raw):
                         self.gf.write_log(log_Wifi, str(raw).replace("\n", ""))
-                        gf.write_collect_log(f"Write WiFi log: {raw.strip()}")
+                        gf.write_log(CODE_LOG_FILE, f"Write WiFi log: {raw.strip()}")
                     elif "BLE" in str(raw) and "RSSI" in str(raw):
                         self.gf.write_log(log_ble, str(raw).replace("\n", ""))
-                        gf.write_collect_log(f"Write BLE log: {raw.strip()}")
+                        gf.write_log(CODE_LOG_FILE, f"Write BLE log: {raw.strip()}")
             except Exception as e:
                 exc_type, exc_obj, exc_tb = sys.exc_info()
                 fname = os.path.split(exc_tb.tb_frame.f_code.co_filename)[1]
                 err_msg = f"main :: {exc_type} - {fname} - {exc_tb.tb_lineno} - {exc_obj}"
                 self.gf.dd(err_msg)
-                gf.write_collect_log(f"ERROR: {err_msg}")
+                gf.write_log(CODE_LOG_FILE, f"ERROR: {err_msg}")
             time.sleep(0.05)
 
     def connect_sensor(self):
@@ -69,7 +63,7 @@ class CollectProgram(object):
                     if "usb-1a86_USB_Single_Serial_562B012422-if00" in find_serial[seri] or "usb-Silicon_Labs_CP2102_USB" in find_serial[seri]:
                         try:
                             self.gf.dd(f"Try to connect sensor :: {seri} :: {find_serial[seri]}")
-                            gf.write_collect_log(f"Try to connect sensor :: {seri} :: {find_serial[seri]}")
+                            gf.write_log(CODE_LOG_FILE, f"Try to connect sensor :: {seri} :: {find_serial[seri]}")
                             self.raw_data = serial.Serial(
                                 seri,
                                 baudrate=115200,
@@ -79,15 +73,15 @@ class CollectProgram(object):
                             time.sleep(3)
                             connected = True
                             gf.led_status("green", self.led_green, self.led_red)
-                            gf.write_collect_log("Sensor connected, LED green ON")
+                            gf.write_log(CODE_LOG_FILE, "Sensor connected, LED green ON")
                             break
                         except Exception as e:
                             self.gf.dd(f"connect_sensor > {e}")
-                            gf.write_collect_log(f"connect_sensor > {e}")
+                            gf.write_log(CODE_LOG_FILE, f"connect_sensor > {e}")
                             gf.led_status("red", self.led_green, self.led_red)
                 if not connected:
                     gf.led_status("red", self.led_green, self.led_red)
-                    gf.write_collect_log("Sensor not connected, LED red ON")
+                    gf.write_log(CODE_LOG_FILE, "Sensor not connected, LED red ON")
                     time.sleep(2)
 
     def get_value(self):
@@ -102,7 +96,7 @@ class CollectProgram(object):
             fname = os.path.split(exc_tb.tb_frame.f_code.co_filename)[1]
             err_msg = f"get_value :: {exc_type} - {fname} - {exc_tb.tb_lineno} - {exc_obj}"
             self.gf.dd(err_msg)
-            gf.write_collect_log(f"ERROR: {err_msg}")
+            gf.write_log(CODE_LOG_FILE, f"ERROR: {err_msg}")
             return None
 
 if __name__ == "__main__":
@@ -110,8 +104,10 @@ if __name__ == "__main__":
         main = CollectProgram()
         main.main()
     except KeyboardInterrupt:
-        gf.write_collect_log("Program stopped by user")
-        GPIO.cleanup()
+        gf.write_log(CODE_LOG_FILE, "Program stopped by user")
+        if globals.output:
+            GPIO.cleanup()
     except Exception as e:
-        gf.write_collect_log(f"FATAL ERROR: {e}")
-        GPIO.cleanup()
+        gf.write_log(CODE_LOG_FILE, f"FATAL ERROR: {e}")
+        if globals.output:
+            GPIO.cleanup()
