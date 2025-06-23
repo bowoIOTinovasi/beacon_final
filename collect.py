@@ -125,3 +125,7 @@ if __name__ == "__main__":
         gf.write_log(CODE_LOG_FILE, f"FATAL ERROR: {e}")
         if globals.output:
             GPIO.cleanup()
+
+ports = list(serial.tools.list_ports.comports())
+for port in ports:
+    print(f"Device: {port.device}, Desc: {port.description}, HWID: {port.hwid}")
